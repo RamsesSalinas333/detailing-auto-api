@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel | Detailing Auto</title>
+<style>
+:root{--bg:#f3f4f2;--panel:#fff;--ink:#1c2321;--mute:#66706c;--line:#dde1de;--acc:#0f6b62;--acc-ink:#fff;--bad:#a8321f}
+@media (prefers-color-scheme:dark){:root{--bg:#141817;--panel:#1c2220;--ink:#e8ece9;--mute:#98a39e;--line:#2d3633;--acc:#4fc3b4;--acc-ink:#0b1210;--bad:#ff8a73}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;flex-wrap:wrap;gap:.75rem 1.5rem;align-items:center;justify-content:space-between;padding:1rem 1.25rem;background:var(--panel);border-bottom:1px solid var(--line)}
+h1{font-size:1.1rem;margin:0}
+nav{display:flex;gap:.25rem;flex-wrap:wrap}
+nav button{background:none;border:0;color:var(--mute);padding:.5rem .8rem;border-radius:6px;cursor:pointer;font:inherit}
+nav button[aria-selected=true]{background:var(--acc);color:var(--acc-ink)}
+nav button:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+main{padding:1.25rem;max-width:1100px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:1rem;margin-bottom:1rem}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:.55rem .6rem;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mute);font-weight:600}
+input,select{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:.4rem .55rem}
+.row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:end}
+.row label{display:flex;flex-direction:column;gap:.2rem;color:var(--mute);font-size:.85rem}
+.btn{background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:.45rem .9rem;cursor:pointer;font:inherit}
+.empty{color:var(--mute);padding:1rem 0}
+#msg{color:var(--bad);min-height:1.4em}
+#login{max-width:340px;margin:20vh auto;padding:0 1.25rem}
+#login .row{flex-direction:column;align-items:stretch}
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <div class="card">
+    <h1>Panel de Detailing Auto</h1>
+    <form id="lf" class="row" style="margin-top:1rem">
+      <label>Clave de administrador<input id="key" type="password" autocomplete="current-password" required></label>
+      <button class="btn">Entrar</button>
+    </form>
+    <p id="lmsg" style="color:var(--bad);margin-bottom:0"></p>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <h1>Detailing Auto</h1>
+    <nav role="tablist" id="tabs"></nav>
+    <button class="btn" id="out">Salir</button>
+  </header>
+  <main><p id="msg" role="alert"></p><div id="view"></div></main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fecha = d => new Date(d).toLocaleString('es-MX', {dateStyle:'medium', timeStyle:'short'});
+const money = n => Number(n).toLocaleString('es-MX', {style:'currency', currency:'MXN'});
+const TABS = {cotizaciones:'Cotizaciones', citas:'Citas', clientes:'Clientes', servicios:'Servicios'};
+let KEY = sessionStorage.getItem('k') || '', tab = 'cotizaciones';
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch('/api/admin' + path, {
+    method,
+    headers: {'Content-Type':'application/json', 'X-Admin-Key': KEY},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (r.status === 401) { sessionStorage.removeItem('k'); KEY = ''; showLogin('Clave incorrecta.'); throw new Error('401'); }
+  if (!r.ok) throw new Error('No se pudo guardar. Revisa los datos e intenta de nuevo.');
+  return r.json();
+}
+function showLogin(m = '') { $('#app').hidden = true; $('#login').hidden = false; $('#lmsg').textContent = m; }
+function showApp() {
+  $('#login').hidden = true; $('#app').hidden = false;
+  $('#tabs').innerHTML = Object.entries(TABS).map(([k, v]) =>
+    `<button role="tab" data-t="${k}" aria-selected="${k === tab}">${v}</button>`).join('');
+  render();
+}
+const sel = (opts, cur, attr) => `<select ${attr}>${opts.map(o => `<option ${o === cur ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+const table = (heads, rows) => rows.length
+  ? `<div class="scroll"><table><thead><tr>${heads.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`
+  : '<p class="empty">Todavía no hay registros.</p>';
+
+const views = {
+  async cotizaciones() {
+    const d = await api('/cotizaciones');
+    return `<div class="card">${table(['Fecha','Cliente','Teléfono','Servicio','Auto','Estado'], d.map(c =>
+      `<tr><td>${fecha(c.creado)}</td><td>${esc(c.nombre)}</td><td>${esc(c.telefono)}</td><td>${esc(c.servicio)}</td><td>${esc(c.auto)}</td>
+       <td>${sel(['nueva','contactado','agendada','cancelada'], c.estado, `data-cot="${c.id}"`)}</td></tr>`))}</div>`;
+  },
+  async clientes() {
+    const d = await api('/clientes');
+    return `<div class="card">${table(['Nombre','Teléfono','Auto','Desde'], d.map(c =>
+      `<tr><td>${esc(c.nombre)}</td><td>${esc(c.telefono)}</td><td>${esc(c.auto)}</td><td>${fecha(c.creado)}</td></tr>`))}</div>`;
+  },
+  async citas() {
+    const [d, cl, sv] = await Promise.all([api('/citas'), api('/clientes'), api('/servicios')]);
+    const op = (a, f) => a.map(x => `<option value="${x.id}">${esc(f(x))}</option>`).join('');
+    return `<div class="card"><form id="nc" class="row">
+      <label>Cliente<select name="cliente_id" required>${op(cl, x => x.nombre)}</select></label>
+      <label>Servicio<select name="servicio_id" required>${op(sv.filter(s => s.activo), x => x.nombre)}</select></label>
+      <label>Fecha y hora<input type="datetime-local" name="fecha_hora" required></label>
+      <label>Notas<input name="notas" maxlength="500"></label>
+      <button class="btn">Agendar cita</button></form></div>
+      <div class="card">${table(['Fecha','Cliente','Servicio','Precio','Notas','Estado'], d.map(c =>
+      `<tr><td>${fecha(c.fecha_hora)}</td><td>${esc(c.nombre)}</td><td>${esc(c.servicio)}</td><td>${money(c.precio)}</td><td>${esc(c.notas)}</td>
+       <td>${sel(['programada','en_proceso','terminada','cancelada'], c.estado, `data-cita="${c.id}"`)}</td></tr>`))}</div>`;
+  },
+  async servicios() {
+    const d = await api('/servicios');
+    return `<div class="card"><form id="ns" class="row">
+      <label>Nombre<input name="nombre" required minlength="2"></label>
+      <label>Descripción<input name="descripcion"></label>
+      <label>Precio (MXN)<input name="precio" type="number" min="0" step="0.01" value="0" required></label>
+      <button class="btn">Agregar servicio</button></form></div>
+      <div class="card">${table(['Servicio','Precio (MXN)','Activo',''], d.map(s =>
+      `<tr><td>${esc(s.nombre)}</td><td><input type="number" min="0" step="0.01" value="${s.precio}" data-p="${s.id}"></td>
+       <td><input type="checkbox" ${s.activo ? 'checked' : ''} data-a="${s.id}"></td>
+       <td><button class="btn" data-save="${s.id}">Guardar</button></td></tr>`))}</div>`;
+  }
+};
+
+async function render() {
+  $('#msg').textContent = '';
+  try { $('#view').innerHTML = await views[tab](); } catch (e) { if (e.message !== '401') $('#msg').textContent = 'No se pudo cargar la información.'; }
+}
+async function run(fn) { try { $('#msg').textContent = ''; await fn(); await render(); } catch (e) { if (e.message !== '401') $('#msg').textContent = e.message; } }
+
+$('#tabs').addEventListener('click', e => { const t = e.target.dataset.t; if (t) { tab = t; showApp(); } });
+$('#out').onclick = () => { sessionStorage.removeItem('k'); KEY = ''; showLogin(); };
+$('#lf').onsubmit = async e => {
+  e.preventDefault(); KEY = $('#key').value;
+  try { await api('/servicios'); sessionStorage.setItem('k', KEY); showApp(); } catch {}
+};
+$('#view').addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.cot) run(() => api('/cotizaciones/' + t.dataset.cot, 'PATCH', {estado: t.value}));
+  if (t.dataset.cita) run(() => api('/citas/' + t.dataset.cita, 'PATCH', {estado: t.value}));
+});
+$('#view').addEventListener('click', e => {
+  const id = e.target.dataset.save; if (!id) return;
+  run(() => api('/servicios/' + id, 'PUT', {
+    precio: parseFloat(document.querySelector(`[data-p="${id}"]`).value || 0),
+    activo: document.querySelector(`[data-a="${id}"]`).checked
+  }));
+});
+$('#view').addEventListener('submit', e => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  if (e.target.id === 'nc') run(() => api('/citas', 'POST', {
+    cliente_id: +f.cliente_id, servicio_id: +f.servicio_id,
+    fecha_hora: new Date(f.fecha_hora).toISOString(), notas: f.notas || null }));
+  if (e.target.id === 'ns') run(() => api('/servicios', 'POST', {
+    nombre: f.nombre, descripcion: f.descripcion || null, precio: parseFloat(f.precio) }));
+});
+KEY ? showApp() : showLogin();
+</script>
+</body>
+</html>
